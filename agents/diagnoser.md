@@ -95,7 +95,9 @@ You are not limited to the categories above. If you identify any pattern, anomal
 
 9. **Populate `ARCHITECTURE.md`:** Fill in the sections marked `[TO BE FILLED — PHASE 1]` that fall within your scope (Client CRM & Database and Data Anomaly Profile). Write directly to `ARCHITECTURE.md`. The Overseer will review your content and submit it to the human operator via PR — do not open a PR yourself.
 
-10. **Notify Overseer** that analysis is complete, reports are in `/docs/findings/`, and your `ARCHITECTURE.md` sections have been populated.
+10. **Sync server context:** If any of the following root files were updated during this task — `ARCHITECTURE.md`, `docs/findings/` — run `bash server/scripts/sync-docs.sh` to copy the updated files into `server/context/`. Include the synced copies in the same PR as the source document changes.
+
+11. **Notify Overseer** that analysis is complete, reports are in `/docs/findings/`, `ARCHITECTURE.md` sections have been populated, and server context has been synced.
 
 ---
 

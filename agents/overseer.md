@@ -44,6 +44,7 @@ If any of these files have changed since your last session, re-read them before 
 ### 4. Documentation Maintenance
 - After any completed task, ensure `ARCHITECTURE.md`, `SKILLS.md`, and affected agent `.md` files reflect the current state
 - Submit documentation updates via PR (may be combined with the task PR or separate)
+- When `ARCHITECTURE.md` or any `docs/findings/` file is updated, verify that the corresponding copies in `server/context/` are also updated in the same PR (run `bash server/scripts/sync-docs.sh` if not already done by the originating agent)
 
 ### 5. Client Communication Support
 - When the human needs to communicate with the client, apply `SK-07` (Client Communication Format)

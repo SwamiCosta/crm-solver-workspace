@@ -67,7 +67,7 @@ This includes code comments, variable names (where applicable), commit messages,
 | Overseer | ✅ | ✅ | ✅ (docs only) | ❌ | ✅ (docs only) | ❌ |
 | Diagnoser | ❌ | ✅ (read-only) | ❌ | ❌ | ❌ | ❌ |
 | Analyser | ✅ (read-only) | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Interfacer | ❌ | ✅ (read-only) | ❌ | ❌ | ❌ | ❌ |
+| Interfacer | ❌ | ✅ (read + conditional write with `x-operator-auth`) | ❌ | ✅ (corrections only, never delete, requires `x-operator-auth`) | ❌ | ❌ |
 | Solver | ✅ | ❌ | ✅ | ❌ | ✅ | ❌ |
 | Fixer | ❌ | ✅ | ❌ | ✅ (flagging only, never delete) | ✅ | ❌ |
 
