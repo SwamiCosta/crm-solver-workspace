@@ -1,0 +1,12 @@
+# Client codebase directories (populated via git clone by operator — not part of this repo)
+crm-be-project/
+crm-fe-project/
+
+# Environment and secrets
+.env
+.env.local
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
