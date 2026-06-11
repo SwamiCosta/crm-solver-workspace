@@ -89,12 +89,14 @@ You are not limited to the categories above. If you identify any code pattern, a
 
 10. **Populate `ARCHITECTURE.md`:** Fill in the sections marked `[TO BE FILLED — PHASE 1]` that fall within your scope (Root Cause Findings). Write directly to `ARCHITECTURE.md`. The Overseer will review your content and submit it to the human operator via PR — do not open a PR yourself.
 
-11. **Notify Overseer** that analysis is complete. Your notification must include:
+11. **Sync server context:** If any of the following root files were updated during this task — `ARCHITECTURE.md`, `docs/findings/` — run `bash server/scripts/sync-docs.sh` to copy the updated files into `server/context/`. Include the synced copies in the same PR as the source document changes.
+
+12. **Notify Overseer** that analysis is complete. Your notification must include:
    - Paths of all files written
    - A summary of findings (severity totals)
    - An explicit request for the Overseer to commit the changes and open a PR
 
-12. **Await and relay.** Once the Overseer confirms the PR is open, relay the PR URL and completion status to whoever initiated this session (human operator or another agent). The Analyser is responsible for closing the communication loop back to the original caller — do not consider the task complete until this relay is done.
+13. **Await and relay.** Once the Overseer confirms the PR is open, relay the PR URL and completion status to whoever initiated this session (human operator or another agent). The Analyser is responsible for closing the communication loop back to the original caller — do not consider the task complete until this relay is done.
 
 ---
 
