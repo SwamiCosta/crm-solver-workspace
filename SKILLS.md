@@ -104,6 +104,18 @@ Rules for batch operations:
 
 ---
 
+## SK-08 — Query Safety
+
+**Applies to:** Diagnoser, Fixer  
+**Trigger:** Before executing any database query
+
+Rules:
+1. **Never execute an unbounded query.** Every SELECT must include at least one of: a WHERE clause, or an explicit row-count constraint (LIMIT, TOP, ROWNUM, FETCH FIRST N ROWS ONLY). Full table scans without a predicate or row limit are prohibited.
+2. If a full scan is genuinely required for a specific analysis step, stop and obtain Overseer approval before running it.
+3. When in doubt about query cost, run EXPLAIN / EXPLAIN ANALYZE first and review the estimated row count before executing.
+
+---
+
 ## SK-07 — Client Communication Format
 
 **Applies to:** Overseer  
