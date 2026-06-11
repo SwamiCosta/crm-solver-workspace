@@ -127,3 +127,17 @@ Client-facing documents must:
 - Always present options with trade-offs rather than a single recommendation (unless one option is clearly dominant)
 - Flag assumptions explicitly
 - End with a clear question or decision required from the client
+
+---
+
+## SK-09 — Inter-Agent Communication Closure
+
+**Applies to:** All agents
+**Trigger:** When an agent completes a task that was assigned by another agent or the human operator
+
+Rules:
+1. Every task has exactly one originating caller (human operator or another agent)
+2. When a task is complete, the completing agent must notify the originating caller — not just the next agent in the chain
+3. If a completing agent delegates a sub-task (e.g. Analyser delegates PR creation to Overseer), it must await confirmation from the delegate before notifying its own caller
+4. Notifications must include: what was completed, any output artefacts (file paths, PR URLs), and whether any open questions require the caller's attention
+5. An agent must never consider a task "done" until the communication loop back to the original caller is closed

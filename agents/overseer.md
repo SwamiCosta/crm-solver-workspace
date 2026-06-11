@@ -51,6 +51,22 @@ If any of these files have changed since your last session, re-read them before 
 
 ---
 
+## Inter-Agent Handoff Protocol
+
+When an agent notifies the Overseer that a task is complete and a PR is needed:
+
+1. Review the files the agent has written before opening any PR
+2. Create a new branch from `main` named `docs/agent-name-task-slug` (e.g. `docs/analyser-root-cause-sim`)
+3. Stage and commit the agent's changes with a message following SK-02 format
+4. Open the PR per SK-02, requesting Overseer review in the description (for audit trail)
+5. **Notify the originating agent** with the PR URL once the PR is open
+
+This notification closes the communication loop. The originating agent is responsible for relaying the PR URL to the human operator.
+
+If the Overseer itself is the originating caller (i.e. the Overseer invoked the agent), the Overseer notifies the human operator directly instead.
+
+---
+
 ## How to Begin a Session
 
 1. Run `git pull` on the `crm-solver` repository (SK-01)
