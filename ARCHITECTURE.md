@@ -115,13 +115,53 @@ GITHUB (shared)
 
 ## Client CRM & Database
 
-`[TO BE FILLED — PHASE 1]`
+> **[SIMULATION]** The values below were produced by a simulated Diagnoser run against a
+> fictional CRM database. No real client database was accessed. Full simulation report:
+> `docs/findings/2026-06-11_diagnoser_anomaly-report.md`
 
-- CRM platform (custom / Bullhorn / Salesforce / HubSpot / other)
-- Database engine and version
-- Schema overview (key tables relevant to hygiene)
-- API rate limits and bulk operation constraints
-- Data volume estimates (record counts per key entity)
+### Platform
+
+| Attribute | Value |
+|---|---|
+| CRM type | Custom-built (no third-party CRM platform) |
+| Backend | Node.js 16 / Express 4.18 / Sequelize 6 |
+| Database engine | PostgreSQL 13 |
+| Database name | `crm_production` |
+| Frontend | React 17 |
+
+### Schema Overview — Key Tables
+
+| Table | Purpose | Records |
+|---|---|---|
+| `contacts` | Candidates and client contacts | 28,450 |
+| `companies` | Client company accounts | 6,830 |
+| `jobs` | Open and historical job postings | 4,210 |
+| `placements` | Confirmed candidate placements | 3,756 |
+| `activities` | Notes, calls, tasks linked to contacts | 94,320 |
+| `branches` | Physical office branches | 8 |
+| `recruiters` (users) | Recruiter accounts | 47 |
+
+### Notable Schema Gaps
+
+- No unique constraint on `companies.name` — duplicate creation is structurally permitted
+- `contacts.email` is nullable and non-unique — the primary deduplication key offers no DB-level guarantee
+- No FK constraint on `placements.job_id` — orphaned placements can and do exist
+- No branch attribution history table — recruiter transfers silently corrupt historical data
+- No indexes on `contacts.company_id` or `activities.contact_id` — performance risk on joins
+- Three distinct soft-delete patterns coexist: `deleted_at` (companies), `is_active` boolean (contacts), `status` field (jobs)
+
+### API Rate Limits and Bulk Operation Constraints
+
+Not yet determined. The client backend has no API documentation. Rate limits are not enforced
+at the application level. Bulk operation constraints will be confirmed in Phase 2 when the
+Interfacer is sized for deployment.
+
+### Data Volume Estimates
+
+| Entity | Count |
+|---|---|
+| Total records scanned | 137,621 |
+| Records with at least one anomaly | 25,194 (18.3% of total) |
 
 ---
 
@@ -208,9 +248,51 @@ GITHUB (shared)
 
 ## Data Anomaly Profile
 
-`[TO BE FILLED — PHASE 1]`
+> **[SIMULATION]** Populated by a simulated Diagnoser run. Full report and data issues log:
+> `docs/findings/2026-06-11_diagnoser_anomaly-report.md`
+> `docs/findings/2026-06-11_diagnoser_data-issues.md`
 
-*Populated by Diagnoser. Will document anomaly types, volumes, and severity distribution.*
+### Anomaly Type Distribution
+
+| Anomaly Code | Type | Affected Records | % of Total |
+|---|---|---|---|
+| `DUP` | Duplicate records | ~2,920 (contacts + companies) | 2.1% |
+| `BLANK` | Missing critical fields | ~9,691 | 7.0% |
+| `FORMAT` | Format inconsistencies | ~22,028 | 16.0% |
+| `TAG` | Incorrect / out-of-vocabulary tags | ~1,840 | 1.3% |
+| `CONFLICT` | Conflicting values across records | ~3,673 | 2.7% |
+| `ORPHAN` | Records referencing deleted parents | ~8,180 | 5.9% |
+| `OTHER` | Timestamp corruption, unclassified | ~9,564 | 6.9% |
+
+### Severity Distribution
+
+| Severity | Finding Count |
+|---|---|
+| `CRITICAL` | 7 |
+| `HIGH` | 18 |
+| `MEDIUM` | 7 |
+| `LOW` | 1 |
+
+### Top 3 Anomaly Categories by Business Impact
+
+1. **Branch attribution corruption (CONFLICT / CRITICAL):** 3,120 contacts have incorrect
+   branch attribution due to recruiter transfers. Branch-level pipeline reporting is structurally
+   wrong for all 8 branches. This affects the primary operational metric used by branch managers.
+
+2. **Null-email contacts (BLANK / CRITICAL):** 2,274 contacts have no email and are permanently
+   invisible to the deduplication system. This population grows with every use of the legacy
+   import endpoint.
+
+3. **Orphaned activity records (ORPHAN / HIGH):** 6,890 activity records are attached to
+   inactive or flagged-duplicate contacts. Recruiter history is functionally lost for these
+   records and cannot be recovered without a migration strategy.
+
+### Structural Risk Summary
+
+The anomaly volume is large but the root causes are concentrated. The Analyser's code analysis
+(see Root Cause Findings section above) identifies 5 CRITICAL code-level causes that collectively
+account for the majority of data anomalies found here. Fixing those 5 causes in Phase 3 will
+stop new anomalies from being created; Phase 4 addresses the existing backlog.
 
 ---
 
