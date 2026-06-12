@@ -23,17 +23,18 @@ CRM-SOLVER is a layered multi-agent system. The internal agents (Overseer, Diagn
 │   └──────┬──────┘                                                │
 │          │ coordinates                                            │
 │    ┌─────┼──────────────────────────┐                            │
-│    ▼     ▼                          ▼                            │
-│ ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌───────┐           │
-│ │DIAGNOSER │  │ANALYSER  │  │  SOLVER   │  │ FIXER │           │
-│ │(DB read) │  │(code read│  │(code write│  │(data  │           │
-│ │Phase 1   │  │Phase 1)  │  │Phase 3)   │  │Phase4)│           │
-│ └────┬─────┘  └────┬─────┘  └─────┬─────┘  └───┬───┘           │
-└──────┼─────────────┼──────────────┼─────────────┼───────────────┘
-       │             │              │             │
-       │ read-only   │ read-only    │ PRs only    │ PRs + batch
-       │             │              │             │   reports
-       ▼             ▼              ▼             ▼
+│    ▼     ▼                                  ▼                            │
+│ ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌───────┐  ┌──────────┐  │
+│ │DIAGNOSER │  │ANALYSER  │  │  SOLVER   │  │ FIXER │  │  PURGER  │  │
+│ │(DB read) │  │(code read│  │(code write│  │(data  │  │(code +   │  │
+│ │Phase 1   │  │Phase 1)  │  │Phase 3)   │  │migrate│  │data del. │  │
+│ │          │  │          │  │           │  │Ph. 4) │  │Phase 5)  │  │
+│ └────┬─────┘  └────┬─────┘  └─────┬─────┘  └───┬───┘  └────┬─────┘  │
+└──────┼─────────────┼──────────────┼─────────────┼───────────┼─────────┘
+       │             │              │             │           │
+       │ read-only   │ read-only    │ PRs only    │ batch     │ purge
+       │             │              │             │ reports   │ batches
+       ▼             ▼              ▼             ▼           ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     CLIENT INFRASTRUCTURE                        │
 │                                                                  │
@@ -124,10 +125,40 @@ GITHUB (shared)
 
 ### Phase 5 — Purge
 
-1. Diagnoser runs a final scan — zero anomalies must be returned before proceeding
-2. Human confirms readiness for purge
-3. Solver removes legacy table references from code (via PR)
-4. Legacy tables are archived or dropped (requires explicit client sign-off)
+**Prerequisites — all four must be confirmed before Phase 5 begins:**
+1. `docs/findings/*_solver_v2-cutover.md` present — no application path writes new records to legacy tables
+2. Fixer completion report present in `docs/migration-reports/` — all legacy records migrated
+3. Diagnoser zero-anomaly scan on `_new` tables completed — human sign-off received
+4. Human operator has provided explicit written approval to begin Phase 5
+
+**Track 1 — Code Purge (runs first):**
+
+1. **Purger** generates a fresh DB backup of all affected tables (legacy + `_new` + `audit_log`) before any action (SK-12 Gate G-3)
+2. Human confirms backup is accessible and verified — Phase 5 does not proceed without this confirmation (rule 4.1)
+3. Purger identifies all legacy files to remove: route handlers, controllers, services, model configs, and cron jobs superseded by V2 equivalents
+4. Purger presents the complete removal list to the human for approval before opening any PRs (rule 4.4)
+5. Purger opens one PR per entity group to the client repo removing legacy files; full test suite must pass after each removal
+6. Each code purge PR goes through Overseer review and human final approval (rules 4.5, 4.6)
+
+**Track 2 — Data Purge (begins only after all code purge PRs are merged):**
+
+7. Purger runs a pre-purge verification `SELECT` on each legacy table confirming all records have `migrated = TRUE` (SK-08)
+8. If any unmigrated records are found: stop, generate a discrepancy report, escalate to the Overseer
+9. Purger generates a pre-purge data summary for each table and presents for human approval (rule 4.1)
+10. Purger executes batch DELETEs per SK-06 and SK-12: 500 records per batch, transaction-wrapped, human approval per batch
+11. After all records are deleted from a table, Purger presents a separate `DROP TABLE` request — requires explicit written client sign-off including the word "drop" and the table name (rule 4.1)
+12. `DROP TABLE <entity> CASCADE` executes only after that sign-off is received
+
+**Final verification:**
+
+13. Diagnoser runs a final zero-anomaly scan on the clean database
+14. Purger generates `docs/findings/YYYY-MM-DD_purger_phase5-completion.md`: prerequisites confirmed, backup reference, files removed, tables dropped, final record counts, sign-off audit trail
+15. Overseer updates `ARCHITECTURE.md` to reflect the clean steady-state system
+
+**What is never touched:**
+- `audit_log` — preserved permanently, never dropped
+- `_new` tables — these are now the production tables; rename to canonical names is out of scope for Phase 5 unless explicitly authorised
+- The Interfacer — remains deployed as an ongoing hygiene and recovery tool
 
 ---
 
