@@ -141,3 +141,102 @@ Rules:
 3. If a completing agent delegates a sub-task (e.g. Analyser delegates PR creation to Overseer), it must await confirmation from the delegate before notifying its own caller
 4. Notifications must include: what was completed, any output artefacts (file paths, PR URLs), and whether any open questions require the caller's attention
 5. An agent must never consider a task "done" until the communication loop back to the original caller is closed
+
+---
+
+## SK-10 — Incremental Versioning and Legacy Preservation
+
+**Applies to:** Solver, Fixer
+**Trigger:** When implementing or migrating to the V2 data model
+
+This skill defines the shared contract between the Solver (which creates V2 code) and the Fixer (which migrates data into V2 tables). Both agents must follow it precisely to ensure the two phases remain compatible.
+
+### Table naming
+- New tables are named `<entity>_new` (e.g. `contacts_new`, `companies_new`, `jobs_new`, `placements_new`)
+- Original tables are never renamed, altered (structurally), or dropped until Phase 5
+
+### Migration flag columns (added by Solver migration, read/updated by Fixer)
+Each legacy table receives two additive columns via Sequelize migration:
+- `migrated BOOLEAN DEFAULT FALSE` — set to `TRUE` by Fixer when the record is copied to `_new`
+- `migrated_at TIMESTAMPTZ` — set to `NOW()` by Fixer at migration time
+
+These columns must never be written by any V2 endpoint or any agent other than the Fixer.
+
+### Endpoint versioning
+- New API endpoints are versioned: `/api/v2/<entity>`
+- Legacy endpoints (`/api/<entity>`, `/api/legacy/<entity>`) remain active and untouched until Phase 5
+- V2 endpoints write exclusively to `_new` tables
+- Legacy endpoints continue to write to legacy tables until the V2 cutover milestone is confirmed
+
+### Unified service layer
+- A dedicated service module (e.g. `services/contactsService.js`) is the only component that queries both `_new` and legacy tables
+- Read queries in this service filter out legacy rows where `migrated = TRUE` to avoid duplicates
+- Route handlers (both legacy and V2) call this service — they never query tables directly
+- This dual-read pattern remains active until Phase 4 is complete and all records are migrated
+
+### V2 cutover milestone
+The cutover milestone is reached when:
+1. All legacy write flows have been replaced by V2 equivalents (verified by Solver)
+2. No application path writes new records to legacy tables
+
+When this milestone is reached, the Solver documents it in `docs/findings/YYYY-MM-DD_solver_v2-cutover.md`. This file is the Fixer's prerequisite to begin data migration.
+
+### Deprecation documentation
+Every legacy file that a new V2 file supersedes must be referenced in the PR description as deprecated. The legacy file itself is never modified — deprecation is documented in the PR, not in the code.
+
+---
+
+## SK-11 — Audit Logging
+
+**Applies to:** Solver, Fixer
+**Trigger:** On every V2 endpoint response (Solver) and every DB write operation (Fixer)
+
+### `audit_log` table schema
+Created by the Solver in the first migration. Lives in the same database as the CRM data (see assumption A-11).
+
+```sql
+CREATE TABLE audit_log (
+  id            SERIAL PRIMARY KEY,
+  timestamp     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  action        VARCHAR(100) NOT NULL,
+  entity        VARCHAR(100),
+  entity_id     INTEGER,
+  initiated_by  VARCHAR(255) NOT NULL,
+  authorized_by VARCHAR(255),
+  details       JSONB
+);
+```
+
+| Column | Purpose |
+|---|---|
+| `action` | Short description of the operation (e.g. `create_contact_v2`, `migrate_batch`, `correct_phone`) |
+| `entity` | Table or resource involved (e.g. `contacts`, `companies`) |
+| `entity_id` | Primary key of the affected record, if applicable |
+| `initiated_by` | Who triggered the operation — recruiter ID, agent name, or system process name |
+| `authorized_by` | Who authorised the operation — operator name for write actions, `null` for reads |
+| `details` | Arbitrary JSON for operation-specific context (old value, new value, batch ID, finding ID, etc.) |
+
+### AuditService contract
+The Solver delivers `services/auditService.js` in the first V2 PR. All subsequent Solver and Fixer operations call it:
+
+```javascript
+// Pseudocode — follow client's existing service conventions
+await AuditService.log({
+  action: 'create_contact_v2',
+  entity: 'contacts',
+  entity_id: newRecord.id,
+  initiated_by: req.user?.id ?? 'system',
+  authorized_by: req.headers['x-operator-auth'] ? 'operator' : null,
+  details: { source: 'POST /api/v2/contacts', payload_keys: Object.keys(body) }
+});
+```
+
+### Failure behaviour
+- If the `AuditService.log()` call fails, the enclosing operation must be aborted or rolled back
+- An audit failure is never silently swallowed — it must propagate as an error
+- This rule applies equally to Solver endpoint handlers and Fixer migration transactions
+
+### Append-only guarantee
+- No `UPDATE` or `DELETE` is ever issued against `audit_log`
+- No agent, endpoint, or migration script may modify an existing audit row
+- Any attempt to do so must be treated as a constraint violation and escalated to the Overseer
