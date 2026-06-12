@@ -70,6 +70,7 @@ This includes code comments, variable names (where applicable), commit messages,
 | Interfacer | ❌ | ✅ (read + conditional write with `x-operator-auth`) | ❌ | ✅ (corrections only, never delete, requires `x-operator-auth`) | ❌ | ❌ |
 | Solver | ✅ | ❌ | ✅ | ❌ | ✅ | ❌ |
 | Fixer | ❌ | ✅ | ❌ | ✅ (flagging only, never delete) | ✅ | ❌ |
+| Purger | ✅ (read-only) | ✅ (read + DELETE on legacy tables only, never `audit_log` or `_new` tables) | ✅ (file deletion only, never new files) | ✅ (DELETE + DROP, human approval required per operation, rule 4.1) | ✅ | ❌ |
 
 ---
 

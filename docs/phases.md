@@ -101,24 +101,45 @@ Deploying the Interfacer in production introduces a recurring token cost tied to
 
 **Goal:** Remove all legacy scaffolding and deliver a clean system.
 
-**Trigger condition:** Diagnoser returns zero anomalies on a full database scan. This is a hard prerequisite — Phase 5 does not begin until this condition is met.
+**Trigger condition:** All four conditions must be met before Phase 5 begins:
+1. Fixer completion report confirms all legacy records are migrated
+2. Diagnoser returns zero anomalies on `_new` tables — human sign-off received
+3. `docs/findings/*_solver_v2-cutover.md` is present
+4. Human operator explicitly authorises Phase 5 to begin
 
-**What happens:**
-- The **Solver** agent removes all references to legacy tables from the codebase (via PR)
-- Legacy tables are archived or dropped — this requires explicit written client sign-off as it is irreversible
-- The Interfacer remains in production as a hygiene assistant and data recovery tool, but is no longer the primary defence (that is now the corrected code)
-- Final documentation update: `ARCHITECTURE.md` is updated to reflect the clean steady-state system
+**What happens — two tracks in sequence:**
 
-**What is deliberately ignored:**
-- The Interfacer is not removed — it continues to add value for edge cases and complex data queries
+Track 1 — **Code Purge** (the **Purger** agent):
+- Purger generates a fresh full DB backup before any action — human confirms it is accessible
+- Purger identifies all legacy files superseded by V2 equivalents (route handlers, services, models, cron jobs)
+- Purger presents the complete removal list for human approval, then opens one PR per entity group
+- Full test suite must pass after each file removal before the PR is eligible for merge
 
-**Duration:** Days
+Track 2 — **Data Purge** (the **Purger** agent, after all code PRs merged):
+- Purger runs pre-purge verification queries confirming all legacy records have `migrated = TRUE`
+- Purger executes batch DELETEs (500 records per batch) with human approval per batch
+- After records are deleted, Purger requests separate written client sign-off to DROP each legacy table
+- `DROP TABLE` executes only after explicit written authorisation (the word "drop" must appear)
+
+Final:
+- Diagnoser runs a final zero-anomaly scan
+- Purger generates a Phase 5 completion report documenting every action and sign-off
+- `ARCHITECTURE.md` is updated by the Overseer to reflect the clean steady-state system
+- The Interfacer remains deployed — it continues to add value as an ongoing hygiene and data recovery tool
+
+**What is deliberately never removed:**
+- The `audit_log` table — preserved permanently
+- `_new` tables — these are now the production tables
+- The Interfacer container
+
+**Duration:** Days to a week depending on data volume and client sign-off availability
 
 **Exit criteria:**
-- Full regression test suite passes after legacy table removal
+- Full regression test suite passes after all legacy file removals
+- All legacy tables dropped with written client sign-off on record
 - Diagnoser returns zero anomalies on the final clean database
-- Client formally signs off on purge completion
-- All `[TO BE FILLED]` sections in `ARCHITECTURE.md` are resolved
+- Phase 5 completion report signed off by human stakeholder
+- All `[TO BE FILLED]` sections in `ARCHITECTURE.md` resolved
 
 ---
 
@@ -130,4 +151,4 @@ Deploying the Interfacer in production introduces a recurring token cost tied to
 | 2 — Interceptor | Interfacer | ✅ (suggestions only → auto-correct) | ❌ | ✅ UAT + HITL graduation |
 | 3 — Stop the Bleeding | Solver | ❌ | ✅ (additive only) | ✅ Each PR |
 | 4 — Historical Fix | Fixer | ✅ (flagging + migration) | ❌ | ✅ Each batch |
-| 5 — Purge | Solver, Diagnoser | ✅ (archive/drop legacy) | ✅ (remove legacy refs) | ✅ Written sign-off |
+| 5 — Purge | Purger, Diagnoser | ✅ (DELETE + DROP legacy only) | ✅ (remove legacy files) | ✅ Written sign-off per DROP |
