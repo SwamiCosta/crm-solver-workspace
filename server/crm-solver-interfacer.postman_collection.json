@@ -1,0 +1,356 @@
+{
+  "info": {
+    "name": "CRM-SOLVER Interfacer",
+    "description": "Test collection for the CRM-SOLVER Interfacer server. Use with the stub Docker image (crm-solver-interfacer-stub) running on localhost:3000.\n\nSet the environment variable `base_url` to `http://localhost:3000` and `operator_token` to `test-token-local`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "operator_token",
+      "value": "test-token-local",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1 — Health & Mode",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/health",
+            "description": "Returns server status, current operating mode, model, and DB connection state."
+          }
+        },
+        {
+          "name": "GET /mode",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/mode",
+            "description": "Returns the current operating mode (suggest or auto-correct)."
+          }
+        },
+        {
+          "name": "PATCH /mode → auto-correct  [AUTH]",
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/mode",
+            "header": [
+              {
+                "key": "x-operator-auth",
+                "value": "{{operator_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"auto-correct\"\n}"
+            },
+            "description": "Changes the operating mode. Requires x-operator-auth header. Try also with mode: \"suggest\" to switch back."
+          }
+        },
+        {
+          "name": "PATCH /mode — no auth → 401",
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/mode",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"auto-correct\"\n}"
+            },
+            "description": "Expected result: HTTP 401. Verifies that mode changes are protected."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 — Intercept",
+      "item": [
+        {
+          "name": "POST /intercept — suggest mode",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/intercept",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpoint\": \"POST /api/companies\",\n  \"payload\": {\n    \"name\": \"acme corp\",\n    \"phone\": \"5551234567\",\n    \"industry\": \"staffing\"\n  }\n}"
+            },
+            "description": "Intercepts a dirty CRM payload. In suggest mode, returns original + suggested + corrections list. Run PATCH /mode → suggest first if you previously switched to auto-correct."
+          }
+        },
+        {
+          "name": "POST /intercept — auto-correct mode",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/intercept",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpoint\": \"POST /api/companies\",\n  \"payload\": {\n    \"name\": \"acme corp\",\n    \"phone\": \"5551234567\",\n    \"industry\": \"staffing\"\n  }\n}"
+            },
+            "description": "Same payload as suggest mode. Run PATCH /mode → auto-correct first. Notice the response structure changes: applied_corrections replaces corrections, and the returned payload is already cleaned."
+          }
+        },
+        {
+          "name": "POST /intercept — missing fields → 400",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/intercept",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payload\": {\n    \"phone\": \"5551234567\"\n  }\n}"
+            },
+            "description": "Expected result: HTTP 400. Missing required 'endpoint' field."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 — Analyze",
+      "item": [
+        {
+          "name": "POST /analyze — with question",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/analyze",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {\n    \"phone\": \"5551234567\",\n    \"industry\": \"staffing\"\n  },\n  \"question\": \"What is wrong with this record?\"\n}"
+            },
+            "description": "Interactive analysis. Returns manual_resolution_available flag, manual SQL if applicable, and a list of issues with severity, anomaly codes, and explanations."
+          }
+        },
+        {
+          "name": "POST /analyze — no question",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/analyze",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {\n    \"phone\": \"5551234567\",\n    \"industry\": \"staffing\"\n  }\n}"
+            },
+            "description": "Same as above but without a specific question. The 'question' field is optional."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4 — Correct",
+      "item": [
+        {
+          "name": "POST /correct — propose only (execute: false)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/correct",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {\n    \"phone\": \"5551234567\",\n    \"industry\": \"staffing\"\n  },\n  \"table\": \"contacts\",\n  \"record_id\": 1234,\n  \"execute\": false\n}"
+            },
+            "description": "Proposes corrections without writing to DB. No auth required. Returns corrections array with confidence scores. db_write_executed will always be false here."
+          }
+        },
+        {
+          "name": "POST /correct — execute: true, NO auth → 401",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/correct",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {\n    \"phone\": \"5551234567\"\n  },\n  \"table\": \"contacts\",\n  \"record_id\": 1234,\n  \"execute\": true\n}"
+            },
+            "description": "Expected result: HTTP 401. Verifies that DB writes are blocked without operator auth."
+          }
+        },
+        {
+          "name": "POST /correct — execute: true, WITH auth, no DB → 503",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/correct",
+            "header": [
+              {
+                "key": "x-operator-auth",
+                "value": "{{operator_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {\n    \"phone\": \"5551234567\"\n  },\n  \"table\": \"contacts\",\n  \"record_id\": 1234,\n  \"execute\": true\n}"
+            },
+            "description": "Expected result: HTTP 503. Auth passes but no DB is configured. Verifies the DB guard fires correctly."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5 — Ask (Conversational Dispatcher)",
+      "item": [
+        {
+          "name": "POST /ask — analyse a record",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/ask",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"What is wrong with this record? phone: 5551234567, industry: staffing\"\n}"
+            },
+            "description": "Free-text request. No operator token needed for read-only operations. The Interfacer identifies the intent (analyze), executes it, and responds in English."
+          }
+        },
+        {
+          "name": "POST /ask — request a correction",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/ask",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Fix the phone number 5551234567 and the industry value staffing for contact 1234\"\n}"
+            },
+            "description": "Conversational correction request. The Interfacer proposes corrections without executing a DB write (no operator token provided for execute)."
+          }
+        },
+        {
+          "name": "POST /ask — switch to auto-correct (with token)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/ask",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Switch to auto-correct mode\",\n  \"operator_token\": \"{{operator_token}}\"\n}"
+            },
+            "description": "Mode change via natural language. Requires operator_token. The server applies the mode change internally and confirms in the response. Check the mode badge in the chat UI or GET /mode to verify."
+          }
+        },
+        {
+          "name": "POST /ask — mode change without token → auth message",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/ask",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Enable auto-correct\"\n}"
+            },
+            "description": "Expected result: HTTP 200 with a response explaining that the operator token is required. The mode is NOT changed."
+          }
+        },
+        {
+          "name": "POST /ask — input in Portuguese",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/ask",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"O que está errado com esse registro? telefone: 5551234567, indústria: staffing\"\n}"
+            },
+            "description": "Input in Portuguese. The Interfacer must always respond in English regardless of input language."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6 — Feedback",
+      "item": [
+        {
+          "name": "POST /feedback — false positive",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/feedback",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"field\": \"job_title\",\n  \"original_value\": \"Lead Developer\",\n  \"correction_rejected\": \"Senior Developer\",\n  \"reason\": \"Lead and Senior are distinct roles at this company.\"\n}"
+            },
+            "description": "Records a false positive in context/feedback-log.md. The entry is loaded into the Interfacer context on the next request."
+          }
+        },
+        {
+          "name": "POST /feedback — missing required field → 400",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/feedback",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Missing field and original_value\"\n}"
+            },
+            "description": "Expected result: HTTP 400. Verifies that 'field' and 'original_value' are required."
+          }
+        }
+      ]
+    }
+  ]
+}
