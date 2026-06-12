@@ -91,18 +91,34 @@ GITHUB (shared)
 
 ### Phase 3 — Stop the Bleeding
 
-1. Operator invokes **Solver** with a specific fix task derived from Analyser findings
-2. Solver proposes solution to human for confirmation (rule 4.4)
-3. Solver implements fix on a feature branch, opens PR, requests Overseer review
-4. Overseer reviews, may request changes, passes to human for final approval
-5. New versioned endpoints coexist with legacy — no breaking changes
+1. Operator invokes **Solver** with a specific Analyser finding ID (e.g. C-01)
+2. Solver reads the finding, designs the fix, and presents the full proposal to the human for confirmation (rule 4.4)
+3. Solver creates a feature branch on the client repo: `fix/<finding-id>-<slug>`
+4. Solver implements **additive code only** — new files, new Sequelize migrations, no modifications to existing files:
+   - New versioned endpoints at `/api/v2/<entity>` (legacy endpoints remain active)
+   - New tables `<entity>_new` created via migration (see SK-10)
+   - Unified service layer that reads from both `_new` and legacy tables (legacy rows with `migrated = TRUE` are excluded from reads)
+   - `audit_log` table and `AuditService` delivered in the first PR (see SK-11)
+   - Unit tests alongside every new file
+5. Solver opens a PR to the client repo per SK-02, requests Overseer review
+6. Overseer reviews, may request changes, passes to human for final approval
+7. When the last legacy write flow is eliminated, Solver documents the **V2 cutover milestone** in `docs/findings/` — this is the Fixer's prerequisite to begin Phase 4
+8. **Legacy backup trigger:** Fixer generates a `pg_dump` of all legacy tables immediately after V2 cutover is confirmed, before any data migration begins (human approval required, rule 4.1)
 
 ### Phase 4 — Historical Fix
 
-1. Operator invokes **Fixer** with a migration task
-2. Fixer generates a batch report of records to be modified — human approves before any write
-3. Fixer executes migration, marks migrated records with a flag in the legacy table
-4. New queries integrate both `_new` and legacy tables until Phase 5
+**Prerequisite:** Solver V2 cutover milestone confirmed (`docs/findings/YYYY-MM-DD_solver_v2-cutover.md` present) and legacy backup stored.
+
+1. Operator invokes **Fixer** with a migration task (table + anomaly type)
+2. Fixer runs a bounded SELECT preview of the target batch (SK-08)
+3. Fixer generates a batch report (`docs/migration-reports/`) — human approves before any write (rule 4.1)
+4. Fixer executes migration in a single DB transaction:
+   - INSERT cleaned record into `<entity>_new`
+   - SET `migrated = TRUE`, `migrated_at = NOW()` on the legacy row
+   - Write to `audit_log` via `AuditService` — if audit fails, transaction rolls back
+5. Batches exceeding 2,000 records or high-cost transformations are wrapped as off-peak scheduled jobs (timing confirmed with client)
+6. After all dirty records are migrated, legacy clean records are also migrated (with human approval per batch)
+7. Unified service layer continues to serve reads from both tables until Phase 5
 
 ### Phase 5 — Purge
 
@@ -140,6 +156,37 @@ GITHUB (shared)
 | `activities` | Notes, calls, tasks linked to contacts | 94,320 |
 | `branches` | Physical office branches | 8 |
 | `recruiters` (users) | Recruiter accounts | 47 |
+
+### V2 Tables and Audit Infrastructure (added in Phase 3)
+
+The following tables are created by Solver-delivered Sequelize migrations. They do not exist in the client's original schema.
+
+| Table | Purpose | Created by |
+|---|---|---|
+| `contacts_new` | Cleaned contacts records with enforced validation | Solver — first migration for contacts |
+| `companies_new` | Cleaned company records with unique name constraint | Solver — first migration for companies |
+| `jobs_new` | Jobs records with standardised status and FK enforcement | Solver — first migration for jobs |
+| `placements_new` | Placement records created via transactional write path | Solver — first migration for placements |
+| `audit_log` | Append-only log of all V2 endpoint and migration operations | Solver — first Phase 3 PR |
+
+**`audit_log` schema:**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `SERIAL PRIMARY KEY` | |
+| `timestamp` | `TIMESTAMPTZ NOT NULL DEFAULT NOW()` | |
+| `action` | `VARCHAR(100) NOT NULL` | e.g. `create_contact_v2`, `migrate_batch`, `correct_phone` |
+| `entity` | `VARCHAR(100)` | Table or resource name |
+| `entity_id` | `INTEGER` | PK of the affected record |
+| `initiated_by` | `VARCHAR(255) NOT NULL` | Recruiter ID, agent name, or system process |
+| `authorized_by` | `VARCHAR(255)` | Operator name for write actions; `null` for reads |
+| `details` | `JSONB` | Operation-specific context (old/new values, batch ID, finding ID) |
+
+**Constraint:** `audit_log` is append-only. No `UPDATE` or `DELETE` may ever be issued against it.
+
+**Assumption:** `audit_log` resides in the same database as the CRM data (`crm_production`). See A-11.
+
+---
 
 ### Notable Schema Gaps
 
