@@ -84,10 +84,12 @@ GITHUB (shared)
 
 ### Phase 2 — Continuous Interceptor
 
-1. Interfacer container is built and deployed to client infrastructure
-2. Client backend is configured to route relevant requests through the Interfacer endpoint
-3. On each request, Interfacer receives the payload, calls the Anthropic API with the system prompt + findings context, and returns a sanitised version
-4. Interfacer operates in **suggest mode** initially (returns both original and suggested value) before graduating to **auto-correct mode** (see HITL Ramp)
+1. `server/migrations/001_create_audit_log.sql` is run against the client database — creates the `audit_log` table that will be shared by all subsequent phases
+2. Interfacer container is built and deployed to client infrastructure
+3. Client backend is configured to route relevant requests through the Interfacer endpoint
+4. On each request, Interfacer receives the payload, calls the Anthropic API with the system prompt + findings context, returns a sanitised version, and writes an entry to `audit_log` (SK-11)
+5. If the database is not yet connected, audit entries fall back to structured console logs — no request is aborted
+6. Interfacer operates in **suggest mode** initially (returns both original and suggested value) before graduating to **auto-correct mode** (see HITL Ramp)
 
 ### Phase 3 — Stop the Bleeding
 
@@ -98,7 +100,7 @@ GITHUB (shared)
    - New versioned endpoints at `/api/v2/<entity>` (legacy endpoints remain active)
    - New tables `<entity>_new` created via migration (see SK-10)
    - Unified service layer that reads from both `_new` and legacy tables (legacy rows with `migrated = TRUE` are excluded from reads)
-   - `audit_log` table and `AuditService` delivered in the first PR (see SK-11)
+   - `AuditService` (`services/auditService.js`) delivered in the first PR — writes to the `audit_log` table already created in Phase 2 (see SK-11)
    - Unit tests alongside every new file
 5. Solver opens a PR to the client repo per SK-02, requests Overseer review
 6. Overseer reviews, may request changes, passes to human for final approval
@@ -167,7 +169,7 @@ The following tables are created by Solver-delivered Sequelize migrations. They 
 | `companies_new` | Cleaned company records with unique name constraint | Solver — first migration for companies |
 | `jobs_new` | Jobs records with standardised status and FK enforcement | Solver — first migration for jobs |
 | `placements_new` | Placement records created via transactional write path | Solver — first migration for placements |
-| `audit_log` | Append-only log of all V2 endpoint and migration operations | Solver — first Phase 3 PR |
+| `audit_log` | Append-only log of all Interfacer operations, V2 endpoint traffic, and migration writes | Phase 2 — `server/migrations/001_create_audit_log.sql` |
 
 **`audit_log` schema:**
 
@@ -183,6 +185,8 @@ The following tables are created by Solver-delivered Sequelize migrations. They 
 | `details` | `JSONB` | Operation-specific context (old/new values, batch ID, finding ID) |
 
 **Constraint:** `audit_log` is append-only. No `UPDATE` or `DELETE` may ever be issued against it.
+
+**Delivered:** Phase 2 (Interfacer deployment). Used by Phase 3 (Solver V2 endpoints) and Phase 4 (Fixer migrations).
 
 **Assumption:** `audit_log` resides in the same database as the CRM data (`crm_production`). See A-11.
 
