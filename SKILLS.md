@@ -188,11 +188,11 @@ Every legacy file that a new V2 file supersedes must be referenced in the PR des
 
 ## SK-11 — Audit Logging
 
-**Applies to:** Solver, Fixer
-**Trigger:** On every V2 endpoint response (Solver) and every DB write operation (Fixer)
+**Applies to:** Interfacer, Solver, Fixer
+**Trigger:** On every Interfacer operation (Phase 2), every V2 endpoint response (Solver, Phase 3), and every DB write operation (Fixer, Phase 4)
 
 ### `audit_log` table schema
-Created by the Solver in the first migration. Lives in the same database as the CRM data (see assumption A-11).
+Created in Phase 2 as part of the Interfacer deployment — see `server/migrations/001_create_audit_log.sql`. Lives in the same database as the CRM data (see assumption A-11). The table already exists by the time Phase 3 (Solver) and Phase 4 (Fixer) begin their work.
 
 ```sql
 CREATE TABLE audit_log (
@@ -217,7 +217,7 @@ CREATE TABLE audit_log (
 | `details` | Arbitrary JSON for operation-specific context (old value, new value, batch ID, finding ID, etc.) |
 
 ### AuditService contract
-The Solver delivers `services/auditService.js` in the first V2 PR. All subsequent Solver and Fixer operations call it:
+The Interfacer delivers the first implementation of `auditLog()` as a server-side helper in `server/server.js` (Phase 2). The Solver delivers a reusable `services/auditService.js` in the first V2 PR (Phase 3) — using the same `audit_log` table. All Solver endpoints and Fixer scripts call this service:
 
 ```javascript
 // Pseudocode — follow client's existing service conventions

@@ -40,7 +40,7 @@ Before any action, confirm you have read and understood:
 - **One PR per Analyser finding ID** (e.g. C-01, H-02). No bundling unrelated fixes.
 - **Propose before implementing.** Per rule 4.4, every proposed fix must be presented to the human for confirmation before writing a single line. This applies even to trivial changes.
 - **Unit tests are mandatory.** Every new file must have a corresponding test file. No PR is valid without tests.
-- **Audit logging is mandatory on every new V2 endpoint.** Every route handler must call `AuditService.log()` per SK-11 before returning a response.
+- **Audit logging is mandatory on every new V2 endpoint.** Every route handler must call `AuditService.log()` per SK-11 before returning a response. The `audit_log` table already exists from Phase 2 — do not create it again.
 - **No credentials in code.** Database credentials and secret tokens are never hardcoded.
 
 ---
@@ -53,7 +53,7 @@ Follow SK-10 precisely. The core rules:
 - New tables are named `<entity>_new` (e.g. `contacts_new`, `companies_new`). Original tables are never altered.
 - `_new` tables are created via **additive Sequelize migration files only** — never by running SQL directly.
 - A unified data-access service queries both `_new` and legacy tables and merges results. This service is the only place that knows about both tables — route handlers call the service, not the tables directly.
-- The `audit_log` table is created in the first migration of each new entity.
+- The `audit_log` table was created in Phase 2 (`server/migrations/001_create_audit_log.sql`) and is already present on the client database. Solver's first PR delivers `services/auditService.js` — a shared service that writes to this existing table.
 
 ---
 
@@ -114,9 +114,8 @@ Follow SK-10 precisely. The core rules:
 
 - `routes/v2/<entity>.js` — V2 route handlers with full validation and audit logging
 - `services/<entity>Service.js` — Unified service layer (queries both `_new` and legacy)
-- `services/auditService.js` — Shared audit logging service (first PR only; reused thereafter)
-- `migrations/YYYYMMDD_create_<entity>_new.js` — Additive Sequelize migration
-- `migrations/YYYYMMDD_create_audit_log.js` — Audit log table migration (first PR only)
+- `services/auditService.js` — Shared audit logging service that writes to the `audit_log` table created in Phase 2 (first Solver PR only; reused thereafter)
+- `migrations/YYYYMMDD_create_<entity>_new.js` — Additive Sequelize migration for `_new` table and migration flag columns on legacy table
 - `tests/routes/v2/<entity>.test.js` — Route-level unit tests
 - `tests/services/<entity>Service.test.js` — Service-level unit tests
 

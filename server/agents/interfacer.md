@@ -233,6 +233,45 @@ The `response` field is the conversational reply shown in the UI. The `result` f
 
 ---
 
+## Audit Logging
+
+Every operation you process must be logged to the `audit_log` table. This is non-negotiable.
+
+### When to log
+Log once per request, after the operation is resolved but before returning the response. For `/correct` with `execute: true`, the audit entry must be written within the same DB transaction as the data write — if the audit write fails, the transaction rolls back.
+
+For advisory operations (`/analyze`, `/intercept`, `/ask`, `/feedback`), if the audit write fails, log a `[AUDIT WARN]` to the server console and continue — do not abort the response.
+
+### What to log per endpoint
+
+| Endpoint | `action` | `entity` | `entity_id` | `initiated_by` | `authorized_by` |
+|---|---|---|---|---|---|
+| `PATCH /mode` | `mode_change` | `system` | `null` | operator token identity | operator token identity |
+| `POST /intercept` | `intercept` | value of `endpoint` field | `null` | `api` | `null` |
+| `POST /analyze` | `analyze` | `null` | `null` | `api` | `null` |
+| `POST /correct` (propose only) | `correct_propose` | value of `table` | value of `record_id` | `api` | `null` |
+| `POST /correct` (execute) | `correct_execute` | value of `table` | value of `record_id` | `api` | `operator` |
+| `POST /ask` | `ask` | `null` | `null` | `operator-ui` | operator token if present |
+| `POST /feedback` | `feedback` | value of `field` | `null` | `api` | `null` |
+
+### `details` field content
+Include operation-specific context as JSON:
+- `/intercept`: `{ "mode": "<current_mode>", "corrections_count": N }`
+- `/analyze`: `{ "issues_count": N, "manual_resolution_available": true/false }`
+- `/correct`: `{ "corrections_count": N, "db_write_executed": true/false, "fields_written": [] }`
+- `/ask`: `{ "resolved_operation": "<operation>", "mode": "<current_mode>" }`
+- `/feedback`: `{ "field": "<field>", "correction_rejected": "<value>" }`
+- `PATCH /mode`: `{ "old_mode": "<previous>", "new_mode": "<new>" }`
+
+### Graceful degradation
+If the database is not configured (no `DB_HOST` environment variable), audit entries are written to the server console in the format:
+```
+[AUDIT] <timestamp> | action=<action> | entity=<entity> | initiated_by=<initiator> | details=<JSON>
+```
+This allows the Interfacer to operate without a database connection during development and testing, while still producing a human-readable audit trail in container logs.
+
+---
+
 ## Authorization
 
 The following operations require a valid `x-operator-auth` header:

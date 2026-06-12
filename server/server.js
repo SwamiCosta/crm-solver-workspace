@@ -95,6 +95,23 @@ if (process.env.DB_HOST) {
 }
 
 // ---------------------------------------------------------------------------
+// Audit logging
+// ---------------------------------------------------------------------------
+
+async function auditLog({ action, entity = null, entity_id = null, initiated_by, authorized_by = null, details = {} }) {
+  const entry = { action, entity, entity_id, initiated_by, authorized_by, details };
+  if (db) {
+    await db.query(
+      `INSERT INTO audit_log (timestamp, action, entity, entity_id, initiated_by, authorized_by, details)
+       VALUES (NOW(), $1, $2, $3, $4, $5, $6)`,
+      [action, entity, entity_id, initiated_by, authorized_by, JSON.stringify(details)]
+    );
+  } else {
+    console.log(`[AUDIT] ${new Date().toISOString()} | action=${action} | entity=${entity ?? 'null'} | initiated_by=${initiated_by} | details=${JSON.stringify(details)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Auth middleware
 // ---------------------------------------------------------------------------
 
@@ -135,13 +152,19 @@ app.get('/mode', (_req, res) => {
 });
 
 // PATCH /mode  (operator only)
-app.patch('/mode', requireOperatorAuth, (req, res) => {
+app.patch('/mode', requireOperatorAuth, async (req, res) => {
   const { mode } = req.body;
   if (!['suggest', 'auto-correct'].includes(mode)) {
     return res.status(400).json({ error: 'Invalid mode. Accepted values: "suggest", "auto-correct".' });
   }
+  const previousMode = currentMode;
   currentMode = mode;
   console.log(`[mode] Changed to ${mode} by operator.`);
+  try {
+    await auditLog({ action: 'mode_change', entity: 'system', initiated_by: 'operator', authorized_by: 'operator', details: { old_mode: previousMode, new_mode: mode } });
+  } catch (err) {
+    console.warn('[AUDIT WARN] mode_change audit failed:', err.message);
+  }
   res.json({ mode: currentMode });
 });
 
@@ -162,6 +185,11 @@ app.post('/intercept', async (req, res) => {
     ].join('\n');
 
     const result = await callInterfacer(userMessage);
+    try {
+      await auditLog({ action: 'intercept', entity: endpoint, initiated_by: 'api', details: { mode: currentMode, corrections_count: Array.isArray(result.corrections) ? result.corrections.length : (Array.isArray(result.applied_corrections) ? result.applied_corrections.length : 0) } });
+    } catch (err) {
+      console.warn('[AUDIT WARN] intercept audit failed:', err.message);
+    }
     res.json(result);
   } catch (err) {
     console.error('[intercept]', err.message);
@@ -185,6 +213,11 @@ app.post('/analyze', async (req, res) => {
     ].filter(Boolean).join('\n');
 
     const result = await callInterfacer(userMessage);
+    try {
+      await auditLog({ action: 'analyze', initiated_by: 'api', details: { issues_count: Array.isArray(result.issues) ? result.issues.length : 0, manual_resolution_available: result.manual_resolution_available ?? false } });
+    } catch (err) {
+      console.warn('[AUDIT WARN] analyze audit failed:', err.message);
+    }
     res.json(result);
   } catch (err) {
     console.error('[analyze]', err.message);
@@ -233,19 +266,43 @@ app.post('/correct', async (req, res) => {
         const safeFields = highConfidence.filter(c => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(c.field));
 
         if (safeFields.length > 0) {
-          const setClauses = safeFields.map((c, i) => `"${c.field}" = $${i + 1}`).join(', ');
-          const values = safeFields.map(c => c.suggested_value);
-          values.push(record_id);
+          const client = await db.connect();
+          try {
+            await client.query('BEGIN');
 
-          await db.query(
-            `UPDATE "${table}" SET ${setClauses}, updated_at = NOW() WHERE id = $${values.length}`,
-            values
-          );
+            const setClauses = safeFields.map((c, i) => `"${c.field}" = $${i + 1}`).join(', ');
+            const values = safeFields.map(c => c.suggested_value);
+            values.push(record_id);
+            await client.query(
+              `UPDATE "${table}" SET ${setClauses}, updated_at = NOW() WHERE id = $${values.length}`,
+              values
+            );
 
-          result.db_write_executed = true;
-          result.fields_written = safeFields.map(c => c.field);
-          console.log(`[correct] Wrote ${safeFields.length} field(s) to ${table} id=${record_id}.`);
+            await client.query(
+              `INSERT INTO audit_log (timestamp, action, entity, entity_id, initiated_by, authorized_by, details)
+               VALUES (NOW(), $1, $2, $3, $4, $5, $6)`,
+              ['correct_execute', table, record_id, 'api', 'operator', JSON.stringify({ corrections_count: safeFields.length, fields_written: safeFields.map(c => c.field) })]
+            );
+
+            await client.query('COMMIT');
+            result.db_write_executed = true;
+            result.fields_written = safeFields.map(c => c.field);
+            console.log(`[correct] Wrote ${safeFields.length} field(s) to ${table} id=${record_id}.`);
+          } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+          } finally {
+            client.release();
+          }
         }
+      }
+    }
+
+    if (!result.db_write_executed) {
+      try {
+        await auditLog({ action: 'correct_propose', entity: table || null, entity_id: record_id || null, initiated_by: 'api', details: { corrections_count: Array.isArray(result.corrections) ? result.corrections.length : 0 } });
+      } catch (err) {
+        console.warn('[AUDIT WARN] correct_propose audit failed:', err.message);
       }
     }
 
@@ -290,6 +347,11 @@ app.post('/ask', async (req, res) => {
       }
     }
 
+    try {
+      await auditLog({ action: 'ask', initiated_by: 'operator-ui', authorized_by: hasAuth ? 'operator' : null, details: { resolved_operation: result.operation, mode: currentMode } });
+    } catch (err) {
+      console.warn('[AUDIT WARN] ask audit failed:', err.message);
+    }
     res.json(result);
   } catch (err) {
     console.error('[ask]', err.message);
@@ -298,7 +360,7 @@ app.post('/ask', async (req, res) => {
 });
 
 // POST /feedback  — report false positive; append to feedback-log.md
-app.post('/feedback', (req, res) => {
+app.post('/feedback', async (req, res) => {
   const { field, original_value, correction_rejected, reason } = req.body;
   if (!field || original_value === undefined) {
     return res.status(400).json({ error: '"field" and "original_value" are required.' });
@@ -315,6 +377,12 @@ app.post('/feedback', (req, res) => {
 
   fs.appendFileSync(FEEDBACK_PATH, entry);
   console.log(`[feedback] False positive recorded for field "${field}".`);
+
+  try {
+    await auditLog({ action: 'feedback', entity: field, initiated_by: 'api', details: { correction_rejected: correction_rejected ?? null, reason: reason || null } });
+  } catch (err) {
+    console.warn('[AUDIT WARN] feedback audit failed:', err.message);
+  }
 
   res.json({ message: 'Feedback recorded. Will be applied on next request.', field, original_value });
 });

@@ -102,3 +102,11 @@ It serves two purposes:
 **Assumption:** All system outputs (code, documentation, reports, PR descriptions) are in English, regardless of the operator's input language. The client operates in an environment where English is acceptable as the technical working language.  
 **Impact if refuted:** Agent `.md` files and CLAUDE.md would need to be updated to specify the correct output language. No architectural changes required.  
 **Validated by:** Pre-engagement confirmation  
+
+---
+
+### A-11 — Audit Log Co-located in CRM Database
+**Status:** `OPEN`  
+**Assumption:** The `audit_log` table (created in Phase 2, see `server/migrations/001_create_audit_log.sql`) resides in the same PostgreSQL database as the CRM data (`crm_production`). No separate audit database or schema is provisioned. The table is shared across all phases: Interfacer (Phase 2), Solver V2 endpoints (Phase 3), and Fixer migrations (Phase 4).  
+**Impact if refuted:** If the client requires audit data isolation (e.g. for compliance reasons), the `audit_log` table would need to move to a dedicated schema or a separate database. This would require changes to the Interfacer's `auditLog()` helper and the Solver's `AuditService` (connection pool). The `audit_log` schema itself (columns, constraints) would not change.  
+**Validated by:** Phase 2 — infrastructure review with client  
