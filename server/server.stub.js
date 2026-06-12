@@ -1,11 +1,17 @@
 'use strict';
 
+// =============================================================================
+// STUB MODE — Anthropic API calls are replaced with hardcoded responses.
+// All server logic, routing, auth, and payload handling is identical to
+// server.js. Only callInterfacer() is replaced.
+// Do not use this file in production.
+// =============================================================================
+
 require('dotenv').config();
 
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const Anthropic = require('@anthropic-ai/sdk');
 const { Pool } = require('pg');
 
 const app = express();
@@ -40,42 +46,182 @@ function buildStaticContext() {
   return ctx;
 }
 
-const SYSTEM_PROMPT = loadFile(path.join(AGENTS_DIR, 'interfacer.md'));
-const STATIC_CONTEXT = buildStaticContext();
+// Context is still loaded to verify the startup path works end-to-end
+loadFile(path.join(AGENTS_DIR, 'interfacer.md'));
+buildStaticContext();
+
 const FEEDBACK_PATH = path.join(CONTEXT_DIR, 'feedback-log.md');
-
-function assembleSystemMessage() {
-  const feedback = loadFile(FEEDBACK_PATH);
-  const feedbackSection = feedback.includes('## Entry')
-    ? '\n\n---\n# context/feedback-log.md\n\n' + feedback
-    : '';
-  return SYSTEM_PROMPT + STATIC_CONTEXT + feedbackSection;
-}
+const MODEL = process.env.ANTHROPIC_MODEL || 'stub (no API call)';
 
 // ---------------------------------------------------------------------------
-// Anthropic client
+// STUB: callInterfacer
+// Returns hardcoded responses that match the exact response format defined in
+// agents/interfacer.md. Keyed on the OPERATION tag embedded in userMessage.
 // ---------------------------------------------------------------------------
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
 
 async function callInterfacer(userMessage) {
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 2048,
-    system: assembleSystemMessage(),
-    messages: [{ role: 'user', content: userMessage }],
-  });
+  if (userMessage.includes('OPERATION: intercept')) {
+    if (currentMode === 'auto-correct') {
+      return {
+        mode: 'auto-correct',
+        payload: {
+          name: 'Acme Corp',
+          phone: '(555) 123-4567',
+          industry: 'Staffing & Recruitment',
+        },
+        applied_corrections: [
+          {
+            field: 'phone',
+            original_value: '5551234567',
+            suggested_value: '(555) 123-4567',
+            confidence: 0.97,
+            anomaly_code: 'FORMAT',
+            reason: 'Reformatted to (XXX) XXX-XXXX standard.',
+          },
+          {
+            field: 'industry',
+            original_value: 'staffing',
+            suggested_value: 'Staffing & Recruitment',
+            confidence: 0.95,
+            anomaly_code: 'TAG',
+            reason: "Value 'staffing' mapped to controlled vocabulary entry 'Staffing & Recruitment'.",
+          },
+        ],
+        pending_suggestions: [],
+      };
+    }
 
-  const text = response.content[0].text.trim();
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (match) return JSON.parse(match[1].trim());
-    throw new Error('Interfacer returned non-JSON response: ' + text.slice(0, 200));
+    // suggest mode (default)
+    return {
+      mode: 'suggest',
+      original: { name: 'Acme Corp', phone: '5551234567', industry: 'staffing' },
+      suggested: { name: 'Acme Corp', phone: '(555) 123-4567', industry: 'Staffing & Recruitment' },
+      corrections: [
+        {
+          field: 'phone',
+          original_value: '5551234567',
+          suggested_value: '(555) 123-4567',
+          confidence: 0.97,
+          anomaly_code: 'FORMAT',
+          reason: 'Reformatted to (XXX) XXX-XXXX standard.',
+        },
+        {
+          field: 'industry',
+          original_value: 'staffing',
+          suggested_value: 'Staffing & Recruitment',
+          confidence: 0.95,
+          anomaly_code: 'TAG',
+          reason: "Value 'staffing' mapped to controlled vocabulary entry 'Staffing & Recruitment'.",
+        },
+      ],
+    };
   }
+
+  if (userMessage.includes('OPERATION: analyze')) {
+    return {
+      manual_resolution_available: true,
+      manual_instructions: "UPDATE companies SET industry = 'Staffing & Recruitment' WHERE industry = 'staffing';",
+      summary: '2 issues found in this record.',
+      issues: [
+        {
+          field: 'phone',
+          value: '5551234567',
+          anomaly_code: 'FORMAT',
+          severity: 'MEDIUM',
+          explanation: "Phone number is not in target format (XXX) XXX-XXXX. Strip non-digit characters and reformat.",
+          suggested_value: '(555) 123-4567',
+          confidence: 0.97,
+        },
+        {
+          field: 'industry',
+          value: 'staffing',
+          anomaly_code: 'TAG',
+          severity: 'HIGH',
+          explanation: "Value 'staffing' is not in the controlled vocabulary. Based on context maps to 'Staffing & Recruitment'.",
+          suggested_value: 'Staffing & Recruitment',
+          confidence: 0.95,
+        },
+      ],
+    };
+  }
+
+  if (userMessage.includes('OPERATION: ask')) {
+    const hasAuth = userMessage.includes('OPERATOR_AUTH_PRESENT: YES');
+    // Extract only the operator's text — avoid false matches on metadata like CURRENT_MODE: suggest
+    const msgLine = userMessage.split('\n').find(l => l.startsWith('MESSAGE:')) || '';
+    const msg = msgLine.replace('MESSAGE:', '').trim().toLowerCase();
+
+    if (msg.includes('mode') || msg.includes('auto') || msg.includes('suggest')) {
+      const targetMode = msg.includes('auto') ? 'auto-correct' : 'suggest';
+      if (!hasAuth) {
+        return {
+          response: 'Operator token required to change the operating mode. Please enter your token in the field at the top of the page.',
+          operation: 'mode_change',
+          result: { authorized: false },
+        };
+      }
+      return {
+        response: `Done. Switched to ${targetMode} mode.${targetMode === 'auto-correct' ? ' High-confidence corrections (> 0.90) will now be applied automatically to intercepted payloads.' : ' Corrections will be surfaced as suggestions for human review.'}`,
+        operation: 'mode_change',
+        result: { mode: targetMode },
+      };
+    }
+
+    if (msg.includes('correct') || msg.includes('fix') || msg.includes('clean')) {
+      return {
+        response: "I found 2 high-confidence corrections. The phone '5551234567' should be '(555) 123-4567' (FORMAT, confidence 0.97). The industry 'staffing' should be 'Staffing & Recruitment' (TAG, confidence 0.95). No DB write has been executed — call /correct with execute: true and your operator token to apply.",
+        operation: 'correct',
+        result: {
+          corrections: [
+            { field: 'phone', original_value: '5551234567', suggested_value: '(555) 123-4567', confidence: 0.97, anomaly_code: 'FORMAT' },
+            { field: 'industry', original_value: 'staffing', suggested_value: 'Staffing & Recruitment', confidence: 0.95, anomaly_code: 'TAG' },
+          ],
+          high_confidence_count: 2,
+          requires_review_count: 0,
+          db_write_executed: false,
+          fields_written: [],
+        },
+      };
+    }
+
+    // Default: analyze
+    return {
+      response: "I found 2 issues with this record. The phone number '5551234567' is not in standard format — it should be '(555) 123-4567' (FORMAT anomaly, confidence 0.97). The industry value 'staffing' is not in the controlled vocabulary — it should be 'Staffing & Recruitment' (TAG anomaly, confidence 0.95).",
+      operation: 'analyze',
+      result: {
+        summary: '2 issues found.',
+        issues: [
+          { field: 'phone', value: '5551234567', anomaly_code: 'FORMAT', severity: 'MEDIUM', suggested_value: '(555) 123-4567', confidence: 0.97 },
+          { field: 'industry', value: 'staffing', anomaly_code: 'TAG', severity: 'HIGH', suggested_value: 'Staffing & Recruitment', confidence: 0.95 },
+        ],
+      },
+    };
+  }
+
+  if (userMessage.includes('OPERATION: correct')) {
+    return {
+      corrections: [
+        {
+          field: 'phone',
+          original_value: '5551234567',
+          suggested_value: '(555) 123-4567',
+          confidence: 0.97,
+          anomaly_code: 'FORMAT',
+        },
+        {
+          field: 'industry',
+          original_value: 'staffing',
+          suggested_value: 'Staffing & Recruitment',
+          confidence: 0.95,
+          anomaly_code: 'TAG',
+        },
+      ],
+      high_confidence_count: 2,
+      requires_review_count: 0,
+    };
+  }
+
+  return { stub_error: 'Unknown operation in userMessage' };
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +271,7 @@ app.get('/health', (_req, res) => {
     mode: currentMode,
     model: MODEL,
     db_connected: db !== null,
+    stub_mode: true,
     timestamp: new Date().toISOString(),
   });
 });
@@ -229,7 +376,6 @@ app.post('/correct', async (req, res) => {
       const highConfidence = result.corrections.filter(c => c.confidence > 0.90);
 
       if (highConfidence.length > 0) {
-        // Build parameterised UPDATE — field names validated as alphanumeric/underscore only
         const safeFields = highConfidence.filter(c => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(c.field));
 
         if (safeFields.length > 0) {
@@ -275,7 +421,6 @@ app.post('/ask', async (req, res) => {
 
     const result = await callInterfacer(userMessage);
 
-    // Apply mode change server-side if the LLM resolved the intent as mode_change
     if (result.operation === 'mode_change' && result.result?.mode) {
       if (!hasAuth) {
         return res.json({
@@ -325,5 +470,9 @@ app.post('/feedback', (req, res) => {
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 app.listen(PORT, () => {
-  console.log(`Interfacer server listening on port ${PORT} — mode: ${currentMode} — model: ${MODEL}`);
+  console.log('');
+  console.log('  *** STUB MODE ACTIVE — no Anthropic API calls will be made ***');
+  console.log('');
+  console.log(`  Interfacer server listening on port ${PORT} — mode: ${currentMode} — model: ${MODEL}`);
+  console.log('');
 });
