@@ -137,10 +137,5 @@ Full deployment guide: [`/server/README.md`](./server/README.md)
 
 ## Assumptions
 
-The following assumptions were made due to intentional ambiguity in the brief and have been stated explicitly in line with the engagement guidelines:
-
-1. The client CRM may be a custom-built system or a standard platform (Bullhorn, Salesforce, HubSpot). The agent architecture is platform-agnostic; tool implementations in the server layer will be adapted once the CRM is confirmed.
-2. Database access (read-only initially) will be provided for the Diagnoser via a dedicated credentials set with minimal permissions.
-3. The client has an existing cloud infrastructure provider where the Interfacer container can be hosted.
-4. UAT environment strategy is to be confirmed with the client (see [`/docs/uat-strategy.md`](./docs/uat-strategy.md)).
-5. All agent outputs and code are in English regardless of operator input language.
+The authoritative assumptions log is maintained in [`/docs/assumptions.md`](./docs/assumptions.md).  
+It tracks all 12 engagement assumptions with statuses (`OPEN` / `CONFIRMED` / `REFUTED` / `SUPERSEDED`), impact descriptions, and validation owners. The Overseer is responsible for keeping that document current.
