@@ -35,21 +35,32 @@ The system is designed so that **each phase delivers standalone value**. The cli
 
 ## MVP Definition
 
-The **Minimum Viable Product** is the successful completion of **Phase 1: Establish**.
+The **Minimum Viable Product** is the successful completion of **Phase 1: Establish** plus the deployment of the **Interfacer in suggest mode** with at least one active integration (Phase 2, Stage 0–1).
+
+Phase 1 alone — producing findings and a problem dossier — does not deliver sufficient standalone value to qualify as an MVP. The MVP requires that the system also intervenes in the live recruiter workflow, even if only in a non-destructive, advisory capacity.
 
 Concretely, the MVP delivers:
+
+**Phase 1 — Establish:**
 - The **Diagnoser** agent has run against a representative sample of the CRM database and produced a structured anomaly report
 - The **Analyser** agent has read the CRM backend codebase and produced a root-cause report identifying code-level sources of inconsistency
 - Both reports have been reviewed and validated with the client
 - The `ARCHITECTURE.md` document has been populated with findings
-- A prioritized dossier of problems and recommended treatments has been approved by a human stakeholder
+- A prioritised dossier of problems and recommended treatments has been approved by a human stakeholder
 
-**Success criteria within the first weeks:**
+**Phase 2 — Continuous Interceptor (suggest mode):**
+- The **Interfacer** is deployed to client infrastructure and is processing live CRM write operations
+- At least one data correction type (e.g. phone normalisation, duplicate contact suggestion) is active in **suggest mode** — returning suggested values alongside original values without blocking recruiter workflow
+- At least one recruiter has received and acted on (accepted or ignored) a suggestion in production
+- Suggestion acceptance rate is being tracked
+
+**Success criteria:**
 - Diagnoser identifies at least the top 3 categories of data anomaly with volume estimates
 - Analyser maps at least one code path that produces inconsistent data
 - Client confirms the findings reflect their real operational experience
+- Interfacer is running stably in production in suggest mode with zero confirmed false positives in the first week
 
-This MVP is deliberately read-only and non-destructive. No data is modified, no code is changed. Its sole output is knowledge.
+The Phase 1 component of the MVP is deliberately read-only and non-destructive. The Phase 2 component writes no data — it returns suggestions only. No records are modified until the HITL Stage 1 graduation criteria are met (see `docs/hitl-ramp.md`).
 
 ---
 
